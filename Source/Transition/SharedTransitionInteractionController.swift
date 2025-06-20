@@ -11,6 +11,11 @@ class SharedTransitionInteractionController: NSObject {
 
     // MARK: Inner types
 
+    enum GestureDirection {
+        case horizontal
+        case vertical
+    }
+
     struct Context {
         var transitionContext: UIViewControllerContextTransitioning
         var fromFrame: CGRect
@@ -29,6 +34,10 @@ class SharedTransitionInteractionController: NSObject {
     private var alreadyCancelled = false
     private var config: SharedTransitionConfig = .interactive
     private var context: Context?
+    
+    // MARK: Public properties
+    
+    var gestureDirection: GestureDirection = .horizontal
 }
 
 // MARK: - UIViewControllerInteractiveTransitioning
@@ -97,12 +106,26 @@ extension SharedTransitionInteractionController {
         guard let context else { return }
         let window = UIApplication.keyWindow!
         let translation = recognizer.translation(in: window)
-        let progress = translation.x / window.frame.width
+        
+        let progress: CGFloat
+        let scaleFactor: CGFloat
+        let transformTranslation: CGPoint
+        
+        switch gestureDirection {
+        case .horizontal:
+            progress = translation.x / window.frame.width
+            scaleFactor = 1 - progress * (1 - config.interactionScaleFactor)
+            transformTranslation = CGPoint(x: translation.x, y: translation.y)
+        case .vertical:
+            progress = max(0, translation.y) / (window.frame.height * 0.5) // Require downward gesture
+            scaleFactor = 1 - progress * (1 - config.interactionScaleFactor)
+            transformTranslation = CGPoint(x: 0, y: max(0, translation.y))
+        }
+        
         context.transitionContext.updateInteractiveTransition(progress)
-        var scaleFactor = 1 - progress * (1 - config.interactionScaleFactor)
-        scaleFactor = min(max(scaleFactor, config.interactionScaleFactor), 1)
-        context.fromView.transform = .init(scaleX: scaleFactor, y: scaleFactor)
-            .translatedBy(x: translation.x, y: translation.y)
+        let clampedScaleFactor = min(max(scaleFactor, config.interactionScaleFactor), 1)
+        context.fromView.transform = .init(scaleX: clampedScaleFactor, y: clampedScaleFactor)
+            .translatedBy(x: transformTranslation.x, y: transformTranslation.y)
     }
 
     func cancel() {
@@ -151,7 +174,7 @@ extension SharedTransitionInteractionController {
 extension SharedTransitionInteractionController {
     private func prepareViewController(from context: UIViewControllerContextTransitioning) {
         let toVC = context.viewController(forKey: .to) as? SharedTransitioning
-        toVC?.prepare(for: .pop)
+        toVC?.prepare(for: .dismiss)
     }
 
     private func setup(with context: UIViewControllerContextTransitioning) -> (UIView, CGRect, UIView, CGRect)? {

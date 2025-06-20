@@ -9,7 +9,26 @@ import UIKit
 
 extension UIView {
     var frameInWindow: CGRect? {
-        superview?.convert(frame, to: nil)
+        // First, try the standard conversion
+        if let superview = superview {
+            return superview.convert(frame, to: nil)
+        }
+        
+        // Fallback: try to get the window directly and convert from self
+        if let window = window {
+            return convert(bounds, to: window)
+        }
+        
+        // Last resort: try to find a superview up the chain
+        var currentView: UIView? = self
+        while let view = currentView {
+            if let superview = view.superview, superview.window != nil {
+                return superview.convert(frame, to: nil)
+            }
+            currentView = view.superview
+        }
+        
+        return nil
     }
 
     static func animate(

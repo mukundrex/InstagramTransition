@@ -12,13 +12,13 @@ class SharedTransitionAnimator: NSObject {
     // MARK: Inner types
 
     enum Transition {
-        case push
-        case pop
+        case present
+        case dismiss
     }
 
     // MARK: Public properties
 
-    var transition: Transition = .push
+    var transition: Transition = .present
 
     // MARK: Private properties
 
@@ -36,10 +36,10 @@ extension SharedTransitionAnimator: UIViewControllerAnimatedTransitioning {
         prepareViewControllers(from: transitionContext, for: transition)
 
         switch transition {
-        case .push:
-            pushAnimation(context: transitionContext)
-        case .pop:
-            popAnimation(context: transitionContext)
+        case .present:
+            presentAnimation(context: transitionContext)
+        case .dismiss:
+            dismissAnimation(context: transitionContext)
         }
     }
 }
@@ -47,7 +47,7 @@ extension SharedTransitionAnimator: UIViewControllerAnimatedTransitioning {
 // MARK: - Animations
 
 extension SharedTransitionAnimator {
-    private func pushAnimation(context: UIViewControllerContextTransitioning) {
+    private func presentAnimation(context: UIViewControllerContextTransitioning) {
         guard let (fromView, fromFrame, toView, toFrame) = setup(with: context) else {
             context.completeTransition(false)
             return
@@ -92,7 +92,7 @@ extension SharedTransitionAnimator {
         }
     }
 
-    private func popAnimation(context: UIViewControllerContextTransitioning) {
+    private func dismissAnimation(context: UIViewControllerContextTransitioning) {
         guard let (fromView, fromFrame, toView, toFrame) = setup(with: context) else {
             context.completeTransition(false)
             return
@@ -157,13 +157,33 @@ extension SharedTransitionAnimator {
               let fromView = context.view(forKey: .from) else {
             return nil
         }
-        if transition == .push {
+        if transition == .present {
             context.containerView.addSubview(toView)
         } else {
             context.containerView.insertSubview(toView, belowSubview: fromView)
         }
-        guard let toFrame = context.sharedFrame(forKey: .to),
-              let fromFrame = context.sharedFrame(forKey: .from) else {
+        
+        let toFrame = context.sharedFrame(forKey: .to)
+        let fromFrame = context.sharedFrame(forKey: .from)
+        
+        guard let toFrame = toFrame, let fromFrame = fromFrame else {
+            // Fallback to basic modal transition without shared element
+            if transition == .present {
+                context.containerView.addSubview(toView)
+                toView.transform = CGAffineTransform(scaleX: 0.1, y: 0.1)
+                UIView.animate(duration: config.duration) {
+                    toView.transform = .identity
+                } completion: {
+                    context.completeTransition(true)
+                }
+            } else {
+                UIView.animate(duration: config.duration) {
+                    fromView.transform = CGAffineTransform(scaleX: 0.1, y: 0.1)
+                    fromView.alpha = 0
+                } completion: {
+                    context.completeTransition(!context.transitionWasCancelled)
+                }
+            }
             return nil
         }
         return (fromView, fromFrame, toView, toFrame)

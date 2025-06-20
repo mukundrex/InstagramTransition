@@ -22,6 +22,20 @@ extension UIViewControllerContextTransitioning {
     func sharedFrame(forKey key: UITransitionContextViewControllerKey) -> CGRect? {
         let viewController = viewController(forKey: key)
         viewController?.view.layoutIfNeeded()
-        return (viewController as? SharedTransitioning)?.sharedFrame
+        
+        // First, try the view controller directly
+        var sharedTransitioningVC = viewController as? SharedTransitioning
+        
+        // If not found and it's a navigation controller, look at the top view controller
+        if sharedTransitioningVC == nil, let navController = viewController as? UINavigationController {
+            sharedTransitioningVC = navController.topViewController as? SharedTransitioning
+        }
+        
+        // If still not found and it's a navigation controller, look at the visible view controller
+        if sharedTransitioningVC == nil, let navController = viewController as? UINavigationController {
+            sharedTransitioningVC = navController.visibleViewController as? SharedTransitioning
+        }
+        
+        return sharedTransitioningVC?.sharedFrame
     }
 }
