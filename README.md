@@ -1,6 +1,6 @@
 # InstagramTransition
 
-A custom shared-element **UIViewController** transition implemented in Swift.
+A custom shared-element **UIViewController** transition implemented in Swift but **using Modal presentation**
 
 ## Description
 
