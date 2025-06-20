@@ -23,7 +23,9 @@ class DetailScreen: UIViewController {
     private let imageFooter = ImageFooter(date: "6 days ago")
     private lazy var recognizer = UIPanGestureRecognizer(target: self, action: #selector(handlePan))
     private let transitionAnimator = SharedTransitionAnimator()
-    private var interactionController: SharedTransitionInteractionController?
+    
+    // MARK: Public properties (for modal interaction)
+    var interactionController: SharedTransitionInteractionController?
 
     // MARK: Init
 
@@ -46,7 +48,12 @@ class DetailScreen: UIViewController {
 
     override func viewDidAppear(_ animated: Bool) {
         super.viewDidAppear(animated)
-        navigationController?.delegate = self
+    }
+
+    override func viewDidLayoutSubviews() {
+        super.viewDidLayoutSubviews()
+        // Ensure imageView has proper layout for frame calculations
+        imageView.layoutIfNeeded()
     }
 }
 
@@ -72,7 +79,7 @@ extension DetailScreen {
         header.then {
             view.addSubview($0)
             $0.backNavigation = { [weak self] in
-                self?.navigationController?.popViewController(animated: true)
+                self?.dismiss(animated: true)
             }
         }.layout {
             $0.top == view.safeAreaLayoutGuide.topAnchor
@@ -145,29 +152,51 @@ extension DetailScreen {
 extension DetailScreen: UIGestureRecognizerDelegate {
     func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer,
                            shouldRecognizeSimultaneouslyWith otherGestureRecognizer: UIGestureRecognizer) -> Bool {
-        scrollView.isBouncing
+        // Allow simultaneous recognition with scroll view when it's bouncing
+        // or when we're handling a horizontal gesture
+        if scrollView.isBouncing {
+            return true
+        }
+        
+        // Check if this is a vertical gesture when scroll view is at top
+        if let panGesture = gestureRecognizer as? UIPanGestureRecognizer {
+            let velocity = panGesture.velocity(in: view)
+            let isVertical = abs(velocity.y) > abs(velocity.x)
+            let isScrollAtTop = scrollView.contentOffset.y <= 0
+            
+            // Allow simultaneous recognition for vertical gestures when scroll is at top
+            if isVertical && isScrollAtTop {
+                return false // Don't allow simultaneous - we want to handle the vertical drag
+            }
+        }
+        
+        return scrollView.isBouncing
+    }
+    
+    func gestureRecognizerShouldBegin(_ gestureRecognizer: UIGestureRecognizer) -> Bool {
+        guard let panGesture = gestureRecognizer as? UIPanGestureRecognizer else { return true }
+        
+        let velocity = panGesture.velocity(in: view)
+        let isVertical = abs(velocity.y) > abs(velocity.x)
+        let isHorizontal = abs(velocity.x) > abs(velocity.y)
+        
+        // For vertical gestures, only allow when scroll view is at top and gesture is downward
+        if isVertical {
+            let isScrollAtTop = scrollView.contentOffset.y <= 0
+            let isDownwardGesture = velocity.y > 0
+            return isScrollAtTop && isDownwardGesture
+        }
+        
+        // For horizontal gestures, always allow
+        if isHorizontal {
+            return true
+        }
+        
+        return false
     }
 }
 
-// MARK: - UINavigationControllerDelegate
 
-extension DetailScreen: UINavigationControllerDelegate {
-    func navigationController(_ navigationController: UINavigationController,
-                              animationControllerFor operation: UINavigationController.Operation,
-                              from fromVC: UIViewController,
-                              to toVC: UIViewController) -> UIViewControllerAnimatedTransitioning? {
-        guard fromVC is Self, toVC is ProfileScreen else { return nil }
-        transitionAnimator.transition = .pop
-        return transitionAnimator
-    }
-
-    func navigationController(
-        _ navigationController: UINavigationController,
-        interactionControllerFor animationController: UIViewControllerAnimatedTransitioning
-    ) -> UIViewControllerInteractiveTransitioning? {
-        interactionController
-    }
-}
 
 // MARK: UIPanGestureRecognizer
 
@@ -178,16 +207,45 @@ extension DetailScreen {
         switch recognizer.state {
         case .began:
             let velocity = recognizer.velocity(in: window)
-            guard abs(velocity.x) > abs(velocity.y) else { return }
-            interactionController = SharedTransitionInteractionController()
-            navigationController?.popViewController(animated: true)
+            let isVertical = abs(velocity.y) > abs(velocity.x)
+            let isHorizontal = abs(velocity.x) > abs(velocity.y)
+            
+            // Determine gesture direction and validate
+            if isHorizontal {
+                // Existing horizontal logic
+                interactionController = SharedTransitionInteractionController()
+                interactionController?.gestureDirection = .horizontal
+                dismiss(animated: true)
+            } else if isVertical {
+                // New vertical logic - only if scroll view is at top and gesture is downward
+                let isScrollAtTop = scrollView.contentOffset.y <= 0
+                let isDownwardGesture = velocity.y > 0
+                
+                if isScrollAtTop && isDownwardGesture {
+                    interactionController = SharedTransitionInteractionController()
+                    interactionController?.gestureDirection = .vertical
+                    dismiss(animated: true)
+                }
+            }
         case .changed:
             interactionController?.update(recognizer)
         case .ended:
-            if recognizer.velocity(in: window).x > 0 {
-                interactionController?.finish()
+            guard let controller = interactionController else { return }
+            
+            let velocity = recognizer.velocity(in: window)
+            let shouldFinish: Bool
+            
+            switch controller.gestureDirection {
+            case .horizontal:
+                shouldFinish = velocity.x > 0
+            case .vertical:
+                shouldFinish = velocity.y > 500 // Require faster downward velocity for vertical dismiss
+            }
+            
+            if shouldFinish {
+                controller.finish()
             } else {
-                interactionController?.cancel()
+                controller.cancel()
             }
             interactionController = nil
         default:
@@ -201,6 +259,33 @@ extension DetailScreen {
 
 extension DetailScreen: SharedTransitioning {
     var sharedFrame: CGRect {
-        imageView.frameInWindow ?? .zero
+        // Ensure views are laid out
+        view.layoutIfNeeded()
+        imageView.layoutIfNeeded()
+        
+        // Try multiple approaches to get a valid frame
+        
+        // Approach 1: Standard frameInWindow
+        if let frame = imageView.frameInWindow, !frame.isEmpty {
+            return frame
+        }
+        
+        // Approach 2: Manual conversion to view controller's view
+        let frameInView = imageView.convert(imageView.bounds, to: view)
+        if !frameInView.isEmpty {
+            return frameInView
+        }
+        
+        // Approach 3: Use imageView's frame in its superview and convert manually
+        if let contentView = imageView.superview {
+            let frameInContentView = imageView.frame
+            let frameInScrollView = contentView.convert(frameInContentView, to: scrollView)
+            let frameInMainView = scrollView.convert(frameInScrollView, to: view)
+            if !frameInMainView.isEmpty {
+                return frameInMainView
+            }
+        }
+        
+        return .zero
     }
 }

@@ -53,7 +53,6 @@ class ProfileScreen: UIViewController {
 
     override func viewDidAppear(_ animated: Bool) {
         super.viewDidAppear(animated)
-        navigationController?.delegate = self
     }
 }
 
@@ -123,7 +122,17 @@ extension ProfileScreen: UICollectionViewDelegate {
         selectedIndexPath = indexPath
         let picture = pictures[indexPath.item]
         let viewController = DetailScreen(picture: picture)
-        navigationController?.pushViewController(viewController, animated: true)
+        viewController.modalPresentationStyle = .fullScreen
+        viewController.transitioningDelegate = self
+        
+        // Force layout to ensure frames are calculated
+        view.layoutIfNeeded()
+        collectionView.layoutIfNeeded()
+        
+        // Ensure the detail screen's view is loaded
+        _ = viewController.view
+        
+        present(viewController, animated: true)
     }
 }
 
@@ -141,22 +150,22 @@ extension ProfileScreen: UICollectionViewDelegateFlowLayout {
     }
 }
 
-// MARK: - UINavigationControllerDelegate
+// MARK: - UIViewControllerTransitioningDelegate
 
-extension ProfileScreen: UINavigationControllerDelegate {
-    func navigationController(_ navigationController: UINavigationController,
-                              animationControllerFor operation: UINavigationController.Operation,
-                              from fromVC: UIViewController,
-                              to toVC: UIViewController) -> UIViewControllerAnimatedTransitioning? {
-        if fromVC is Self, toVC is DetailScreen {
-            transitionAnimator.transition = .push
-            return transitionAnimator
-        }
-        if toVC is Self, fromVC is DetailScreen {
-            transitionAnimator.transition = .pop
-            return transitionAnimator
-        }
-        return nil
+extension ProfileScreen: UIViewControllerTransitioningDelegate {
+    func animationController(forPresented presented: UIViewController, presenting: UIViewController, source: UIViewController) -> UIViewControllerAnimatedTransitioning? {
+        transitionAnimator.transition = .present
+        return transitionAnimator
+    }
+    
+    func animationController(forDismissed dismissed: UIViewController) -> UIViewControllerAnimatedTransitioning? {
+        transitionAnimator.transition = .dismiss
+        return transitionAnimator
+    }
+    
+    func interactionControllerForDismissal(using animator: UIViewControllerAnimatedTransitioning) -> UIViewControllerInteractiveTransitioning? {
+        guard let detailScreen = presentedViewController as? DetailScreen else { return nil }
+        return detailScreen.interactionController
     }
 }
 
@@ -164,14 +173,23 @@ extension ProfileScreen: UINavigationControllerDelegate {
 
 extension ProfileScreen: SharedTransitioning {
     var sharedFrame: CGRect {
-        guard let selectedIndexPath,
-              let cell = collectionView.cellForItem(at: selectedIndexPath),
-              let frame = cell.frameInWindow else { return .zero }
+        guard let selectedIndexPath else { 
+            return .zero 
+        }
+        
+        guard let cell = collectionView.cellForItem(at: selectedIndexPath) else {
+            return .zero
+        }
+        
+        guard let frame = cell.frameInWindow else {
+            return .zero
+        }
+        
         return frame
     }
 
     func prepare(for transition: SharedTransitionAnimator.Transition) {
-        guard transition == .pop, let selectedIndexPath else { return }
+        guard transition == .dismiss, let selectedIndexPath else { return }
         collectionView.verticalScrollItemVisible(at: selectedIndexPath, with: 40, animated: false)
     }
 }
